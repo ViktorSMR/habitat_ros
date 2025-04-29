@@ -197,20 +197,33 @@ class HabitatObservationPublisher:
 
         # Publish true pose
         if self.publish_true_pose:
+            T = np.array([
+                [0, 0, 1, 0],
+                [1, 0, 0, 35],
+                [0, 1, 0, -1.15],
+                [0, 0, 0, 1]
+            ])
+            def transform_to_map_coords(position_habitat, T):
+                position_habitat_4 = np.ones((4, 1))
+                position_habitat_4[:3, 0] = position_habitat
+                position_map = T @ position_habitat_4
+                return position_map[:3, 0]
+
             x, y = observations['gps']
             cur_z_angle = observations['compass'][0]
             cur_pose = PoseStamped()
+            x, y, z = transform_to_map_coords(observations['agent_position'][0], T)
             cur_pose.header.stamp = cur_time
             cur_pose.header.frame_id = 'map'
             cur_pose.pose.position.x = x
-            cur_pose.pose.position.y = -y
+            cur_pose.pose.position.y = y
             cur_pose.pose.position.z = 0.1#observations['agent_position'][0][1]
             cur_pose.pose.orientation.x, \
             cur_pose.pose.orientation.y, \
             cur_pose.pose.orientation.z, \
             cur_pose.pose.orientation.w = tf.transformations.quaternion_from_euler(0, 0, cur_z_angle)
             #print('Pose at time {} is ({}, {}, {})'.format(cur_time.to_sec(), x, -y, cur_z_angle))
-            self.tfbr.sendTransform((x, -y, observations['agent_position'][0][1]),
+            self.tfbr.sendTransform((x, y, observations['agent_position'][0][1]),
                                     tf.transformations.quaternion_from_euler(0, 0, cur_z_angle),
                                     cur_time,
                                     'base_link', 'map')

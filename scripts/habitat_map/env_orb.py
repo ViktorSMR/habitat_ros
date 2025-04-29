@@ -7,13 +7,14 @@ import numba
 import numpy as np
 from gym import spaces
 
-from habitat.config import Config
+from omegaconf import DictConfig
+
 from habitat.core.dataset import Dataset, Episode, EpisodeIterator
 from habitat.core.embodied_task import EmbodiedTask, Metrics
 from habitat.core.simulator import Observations, Simulator
 from habitat.datasets import make_dataset
 from habitat.sims import make_sim
-from habitat.tasks import make_task
+from habitat.tasks.registration import make_task
 from habitat_sim.agent.agent import AgentState
 from habitat_sim.utils.common import quat_from_angle_axis
 
@@ -30,8 +31,10 @@ from torch.nn import functional as F
 from torchvision import transforms
 from gym.spaces.box import Box
 
+
 def resize2d(img, size):
-    return (F.adaptive_avg_pool2d(Variable(img,volatile=True), size)).data
+    with torch.no_grad():
+        return F.adaptive_avg_pool2d(img, size)
 
 def _preprocess_depth(depth):
     depth = depth[:, :, 0]*1
@@ -105,7 +108,7 @@ class Env:
 
     observation_space: spaces.Dict
     action_space: spaces.Dict
-    _config: Config
+    _config: DictConfig
     _dataset: Optional[Dataset]
     number_of_episodes: Optional[int]
     _episodes: List[Episode]
@@ -121,7 +124,7 @@ class Env:
     _episode_over: bool
 
     def __init__(
-        self, config: Config, dataset: Optional[Dataset] = None
+        self, config: DictConfig, dataset: Optional[Dataset] = None
     ) -> None:
         """Constructor
         :param config: config for the environment. Should contain id for
@@ -137,27 +140,20 @@ class Env:
             "environment, use config.freeze()."
         )
         self._config = config
-        self.dt = config.SIMULATOR.TURN_ANGLE
+        self.dt = self._config.habitat.simulator.turn_angle
         self._dataset = dataset
         self._current_episode_index = None
-        if self._dataset is None and self._config.DATASET.TYPE:
+        if self._dataset is None and self._config.habitat.dataset.type:
             self._dataset = make_dataset(
-                id_dataset=self._config.DATASET.TYPE, config=self._config.DATASET
+                id_dataset=self._config.habitat.dataset.type,
+                config=self._config.habitat.dataset
             )
-        self._episodes = (
-            self._dataset.episodes
-            if self._dataset
-            else cast(List[Episode], [])
-        )
+
+        self._episodes = self._dataset.episodes if self._dataset else cast(List[Episode], [])
         self._current_episode = None
-        iter_option_dict = {
-            k.lower(): v
-            for k, v in self._config.ENVIRONMENT.ITERATOR_OPTIONS.items()
-        }
-        #iter_option_dict["seed"] = config.SEED
-        self._episode_iterator = self._dataset.get_episode_iterator(
-            **iter_option_dict
-        )
+        iter_option_dict = {k.lower(): v for k, v in self._config.habitat.environment.iterator_options.items()}
+
+        self._episode_iterator = self._dataset.get_episode_iterator(**iter_option_dict)
 
         # load the first scene if dataset is present
         if self._dataset:
@@ -165,7 +161,7 @@ class Env:
                 len(self._dataset.episodes) > 0
             ), "dataset should have non-empty episodes list"
             self._config.defrost()
-            self._config.SIMULATOR.SCENE = self._dataset.episodes[0].scene_id
+            self._config.habitat.simulator.scene = self._dataset.episodes[0].scene_id
             self._config.freeze()
 
             self.number_of_episodes = len(self._dataset.episodes)
@@ -173,11 +169,12 @@ class Env:
             self.number_of_episodes = None
 
         self._sim = make_sim(
-            id_sim=self._config.SIMULATOR.TYPE, config=self._config.SIMULATOR
+            id_sim=self._config.habitat.simulator.type,
+            config=self._config.habitat.simulator
         )
         self._task = make_task(
-            self._config.TASK.TYPE,
-            config=self._config.TASK,
+            self._config.habitat.task.type,
+            config=self._config.habitat.task,
             sim=self._sim,
             dataset=self._dataset,
         )
@@ -188,10 +185,8 @@ class Env:
             }
         )
         self.action_space = self._task.action_space
-        self._max_episode_seconds = (
-            self._config.ENVIRONMENT.MAX_EPISODE_SECONDS
-        )
-        self._max_episode_steps = self._config.ENVIRONMENT.MAX_EPISODE_STEPS
+        self._max_episode_seconds = self._config.habitat.environment.max_episode_seconds
+        self._max_episode_steps = self._config.habitat.environment.max_episode_steps
         self._elapsed_steps = 0
         self._episode_start_time: Optional[float] = None
         self._episode_over = False
@@ -419,7 +414,7 @@ class Env:
             
         #reward = 0.
         
-        """
+        """from habitat.tasks.registration import make_task
         return {'depth':observations['depth'], 
                     'rgb':observations['rgb'], 
                     'semantic':self.sem_to_model_goal, 
@@ -482,16 +477,16 @@ class Env:
         self._sim.seed(seed)
         self._task.seed(seed)
 
-    def reconfigure(self, config: Config) -> None:
+    def reconfigure(self, config: DictConfig) -> None:
         self._config = config
 
         self._config.defrost()
-        self._config.SIMULATOR = self._task.overwrite_sim_config(
-            self._config.SIMULATOR, self._current_episode
+        self._config.habitat.simulator = self._task.overwrite_sim_config(
+            self._config.habitat.simulator, self._current_episode
         )
         self._config.freeze()
 
-        self._sim.reconfigure(self._config.SIMULATOR)
+        self._sim.reconfigure(self._config.habitat.simulator)
 
     def render(self, mode="rgb") -> np.ndarray:
         return self._sim.render(mode)

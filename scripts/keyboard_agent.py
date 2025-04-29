@@ -11,11 +11,11 @@ class KeyboardAgent(habitat.Agent):
         pass
 
     def get_actions_from_keyboard(self):
-        keyboard_commands = [HabitatSimActions.MOVE_FORWARD] * int(self.speed)
+        keyboard_commands = [HabitatSimActions.move_forward] * int(self.speed)
         if keyboard.is_pressed('left'):
-            keyboard_commands += [HabitatSimActions.TURN_LEFT] * max(int(self.twist), 1)
+            keyboard_commands += [HabitatSimActions.turn_left] * max(int(self.twist), 1)
         if keyboard.is_pressed('right'):
-            keyboard_commands += [HabitatSimActions.TURN_RIGHT] * max(int(self.twist), 1)
+            keyboard_commands += [HabitatSimActions.turn_right] * max(int(self.twist), 1)
         if keyboard.is_pressed('up'):
             self.speed += 0.1
         if keyboard.is_pressed('down'):
@@ -38,4 +38,4 @@ class KeyboardAgent(habitat.Agent):
         if len(actions) > 0:
             return actions[-1]
         else:
-            return HabitatSimActions.STOP
+            return HabitatSimActions.stop

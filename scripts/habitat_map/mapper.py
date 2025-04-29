@@ -1,5 +1,5 @@
 import sys
-sys.path.append('/home/kirill/catkin_ws/src/habitat_ros/scripts/habitat_map')
+sys.path.append('/catkin_ws/src/habitat_ros/scripts/habitat_map')
 from .arguments import get_args as get_args_env
 from .utils_f.map_builder_objnav import MapBuilder
 import skimage

@@ -45,9 +45,9 @@ class ShortestPathFollowerAgent(habitat.Agent):
         self.goal_radius = goal_radius
 
         # initialize ROS publishers and subscribers
-        self.goal_subscriber = rospy.Subscriber('/move_base_simple/goal', PoseStamped, self.goal_callback)
-        self.freeze_subscriber = rospy.Subscriber('/freeze', Bool, self.freeze_callback)
-        self.robot_pose_publisher = rospy.Publisher('/robot_pose_in_habitat_coords', PoseStamped, latch=True, queue_size=100)
+        # self.goal_subscriber = rospy.Subscriber('/move_base_simple/goal', PoseStamped, self.goal_callback)
+        # self.freeze_subscriber = rospy.Subscriber('/freeze', Bool, self.freeze_callback)
+        # self.robot_pose_publisher = rospy.Publisher('/robot_pose_in_habitat_coords', PoseStamped, latch=True, queue_size=100)
         self.goal_received = False
         self.traveled_distance = 0
 
@@ -153,26 +153,21 @@ class ShortestPathFollowerAgent(habitat.Agent):
             print('Switch to next goal:', self.goal_pose_in_habitat_coords)
             self.goal_position_id += 1
         # print('Freeze:', self.freeze)
-        if keyboard.is_pressed('left'):
-            return HabitatSimActions.TURN_LEFT
-        elif keyboard.is_pressed('right'):
-            return HabitatSimActions.TURN_RIGHT
-        elif keyboard.is_pressed('up'):
-            return HabitatSimActions.MOVE_FORWARD
-        elif self.goal_pose_in_habitat_coords is None:
+        if self.goal_pose_in_habitat_coords is None:
             #if not self.goal_received:
                 #print('Random action')
                 #return np.random.choice([HabitatSimActions.MOVE_FORWARD, HabitatSimActions.TURN_LEFT])
             print('Total traveled distance:', self.traveled_distance)
-            return HabitatSimActions.STOP
+            return HabitatSimActions.stop
         #elif self.freeze:
         #    return HabitatSimActions.STOP
         else:
             next_action = self.follower.get_next_action(self.goal_pose_in_habitat_coords)
-            if next_action == HabitatSimActions.MOVE_FORWARD:
+            print(f"{next_action=}")
+            if next_action == HabitatSimActions.move_forward:
                 self.traveled_distance += 0.2
             # print('Next action:', next_action)
             if next_action is None:
                 print('CANNOT MOVE TO GOAL!!!')
-                return HabitatSimActions.STOP
+                return HabitatSimActions.stop
             return next_action

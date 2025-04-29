@@ -1,7 +1,7 @@
 import numpy as np
 # from numba import njit
 import sys
-sys.path.append('/home/kirill/catkin_ws/src/habitat_ros/scripts/habitat_map/utils_f')
+sys.path.append('/catkin_ws/src/habitat_ros/scripts/habitat_map/utils_f')
 import depth_utils as du
 import time
 import skimage.measure

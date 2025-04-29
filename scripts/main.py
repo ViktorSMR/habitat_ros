@@ -3,6 +3,18 @@
 import numpy as np
 np.float = np.float64
 
+from habitat.config.default_structured_configs import (
+    HabitatSimSemanticSensorConfig,
+    GPSSensorConfig,
+    TopDownMapMeasurementConfig,
+    HeadingSensorConfig,
+)
+from custom_sensors import register_sensors, AgentPositionSensorConfig
+from omegaconf import OmegaConf
+import matplotlib.pyplot as plt
+import matplotlib.animation as animation
+import json
+
 import rospy
 import habitat
 #from habitat_map.env_orb import Env
@@ -17,12 +29,14 @@ from habitat.sims.habitat_simulator.actions import HabitatSimActions
 from keyboard_agent import KeyboardAgent
 from shortest_path_follower_agent import ShortestPathFollowerAgent
 from greedy_path_follower_agent import GreedyPathFollowerAgent
-from random_movement_agent import RandomMovementAgent
+# from random_movement_agent import RandomMovementAgent
 from custom_sensors import AgentPositionSensor
 from publishers import HabitatObservationPublisher
 from habitat_map.mapper import Mapper
 from habitat_baselines.config.default import get_config
 from habitat_map.utils import draw_top_down_map
+from ddppo import DDPPOAgent
+
 from skimage.io import imsave
 from tqdm import tqdm
 from habitat_map import env_orb
@@ -33,6 +47,9 @@ import os
 import roslaunch
 import gc
 import subprocess
+import time
+import tf
+import math
 
 DEFAULT_RATE = 30
 DEFAULT_AGENT_TYPE = 'keyboard'
@@ -40,8 +57,9 @@ DEFAULT_GOAL_RADIUS = 0.25
 DEFAULT_MAX_ANGLE = 0.1
 
 class HabitatRunner():
-    def __init__(self):
+    def __init__(self, name):
         # Initialize ROS node and take arguments
+        self.name = name
         task_config = rospy.get_param('~task_config')
         rate_value = rospy.get_param('~rate', DEFAULT_RATE)
         agent_type = rospy.get_param('~agent_type', DEFAULT_AGENT_TYPE)
@@ -72,36 +90,60 @@ class HabitatRunner():
         self.reset_publisher = rospy.Publisher('/reset_exploration', String, latch=True, queue_size=100)
         self.robot_pose_publisher = rospy.Publisher('/robot_pose_in_habitat_coords', PoseStamped, latch=True, queue_size=100)
 
+        self.pointgoal_sub = rospy.Subscriber(
+            '/pointgoal',
+            PoseStamped,
+            self.pointgoal_callback,
+            queue_size=1
+        )
+
+        self.goal_publisher = rospy.Publisher("/move_base_simple/goal", PoseStamped, queue_size=1)
+
+        self.goal_received = False
+        self.robot_pose_in_slam_coords = None
+        self.robot_pose_in_habitat_coords = None
+        self.goal_pose_in_slam_coords = None
+        self.goal_pose_in_habitat_coords = None
+        
         # Now define the config for the sensor
-        habitat_path = '/home/kirill/habitat-lab/data'
+        habitat_path = '/habitat-lab/data'
         config = habitat.get_config(task_config)
-        config.defrost()
-        #config.DATASET.DATA_PATH = os.path.join(habitat_path, 'datasets/objectnav_hm3d_v1/val/val.json.gz')
-        #config.DATASET.CONTENT_SCENES = ['mv2HUxq3B53']
-        config.ENVIRONMENT.ITERATOR_OPTIONS.SHUFFLE = False
-        config.TASK.AGENT_POSITION_SENSOR = habitat.Config()
-        config.TASK.AGENT_POSITION_SENSOR.TYPE = "position_sensor"
-        config.TASK.AGENT_POSITION_SENSOR.ANSWER_TO_LIFE = 42
-        config.TASK.SENSORS.append("AGENT_POSITION_SENSOR")
-        config.SIMULATOR.AGENT_0.SENSORS.append("SEMANTIC_SENSOR")
-        print(config.DATASET)
-        config.SIMULATOR.SCENE_DATASET = os.path.join(habitat_path, "scene_datasets/hm3d/hm3d_annotated_basis.scene_dataset_config.json")
-        #config.SIMULATOR.SCENE = 'mv2HUxq3B53'
-        print('PATH:', config.SIMULATOR.SCENE_DATASET)
-        config.TASK.MEASUREMENTS.append("TOP_DOWN_MAP")
-        config.TASK.SENSORS.append("HEADING_SENSOR")
-        config.freeze()
+        OmegaConf.set_readonly(config, False)
+        OmegaConf.set_struct(config, False)
+
+        config.habitat.environment.iterator_options.shuffle = False
+        
+        config.habitat.task.lab_sensors.agent_position_sensor = AgentPositionSensorConfig(
+            answer_to_life=42
+        )
+        
+        config.habitat.task.lab_sensors.heading_sensor = HeadingSensorConfig()
+        
+        config.habitat.simulator.agents.main_agent.sim_sensors.semantic_sensor = HabitatSimSemanticSensorConfig()
+        
+        config.habitat.simulator.scene_dataset = os.path.join(
+            habitat_path,
+            "scene_datasets/hm3d/hm3d_annotated_basis.scene_dataset_config.json"
+        )
+        
+        config.habitat.task.measurements.top_down_map = TopDownMapMeasurementConfig()
+        config.habitat.task.lab_sensors["heading_sensor"] = HeadingSensorConfig()
+        
+        OmegaConf.set_struct(config, True)
+        OmegaConf.set_readonly(config, True)
         self.config = config
 
         # Initialize the agent and environment
+        print(config)
         self.env = habitat.Env(config=config)
         #self.env = env_orb.Env(config=config)
         print('Environment created')
 
-        self.mapper = Mapper()
+        self.mapper = Mapper(self.env)
         #self.semantic_predictor = SemanticPredictor(threshold=0.35)
-        goal_positions = np.loadtxt('/home/kirill/catkin_ws/src/habitat_ros/goal_positions/mp3d/{}.txt'.format(scene_name))
-        #goal_positions = np.loadtxt('/home/kirill/catkin_ws/src/habitat_ros/goal_positions/mipt.txt')
+        # goal_positions = np.loadtxt('/catkin_ws/src/habitat_ros/goal_positions/mp3d/{}.txt'.format(scene_name))
+        # goal_positions = np.loadtxt('/catkin_ws/src/habitat_ros/goal_positions/mp3d/{}.txt'.format(scene_name))
+        goal_positions = np.loadtxt('/catkin_ws/src/habitat_ros/goal_positions/mipt.txt')
         #goal_positions = None
         if agent_type == 'keyboard':
            self.agent = KeyboardAgent()
@@ -111,11 +153,12 @@ class HabitatRunner():
             self.agent = GreedyPathFollowerAgent(self.goal_radius, self.max_d_angle)
         elif agent_type == 'random_movement':
             self.agent = RandomMovementAgent()
+        elif agent_type == 'ddppo':
+            self.agent = DDPPOAgent()
         else:
             print('AGENT TYPE {} IS NOT DEFINED!!!'.format(agent_type))
             return
         self.dataset_save_path = '/data/datasets/opr_training_data/gibson'
-
 
     def publish_map(self):
         occupancy_map = self.mapper.mapper.map
@@ -133,10 +176,78 @@ class HabitatRunner():
         map_msg.data = list(map_data.ravel())
         self.map_publisher.publish(map_msg)
 
+    def get_robot_pose(self, observations):
+        current_x, current_y = observations['gps']
+        current_y = -current_y
+        robot_angle = observations['compass'][0]
+        current_x_new = current_x * math.cos(-robot_angle) + current_y * math.sin(-robot_angle)
+        current_y_new = -current_x * math.sin(-robot_angle) + current_y * math.cos(-robot_angle)
+        return current_x, current_y, robot_angle
 
-    def run_episode(self):
+    def pointgoal_callback(self, msg):
+        self.goal_received = True
+        # Receive goal pose in SLAM coords
+        # print('Received goal with coords: {}, {}'.format(msg.pose.position.x, msg.pose.position.y))
+        goal_x, goal_y = msg.pose.position.x, msg.pose.position.y
+        self.goal_pose_in_habitat_coords = np.array([goal_x, goal_y, msg.pose.position.z])
+
+        # Find robot's position and orientation in SLAM and Habitat coords
+        # habitat_position, habitat_orientation = self.robot_pose_in_habitat_coords
+        # print('Robot pose in habitat coords:', habitat_position, habitat_orientation)
+        # habitat_y, habitat_z, habitat_x = habitat_position
+        # _, __, habitat_angle = tf.transformations.euler_from_quaternion([habitat_orientation.x, habitat_orientation.z, habitat_orientation.y, habitat_orientation.w])
+
+        # # Calculate transform between SLAM and Habitat coordinate systems
+        # d_angle = self.normalize(habitat_angle - self.slam_angle + np.pi)
+        # #print('D_ANGLE:', d_angle)
+        # dx = habitat_x - (self.slam_x * math.cos(d_angle) + self.slam_y * math.sin(d_angle))
+        # dy = habitat_y - (-self.slam_x * math.sin(d_angle) + self.slam_y * math.cos(d_angle))
+
+        # # Compute goal position in Habitat coords
+        # goal_x_rotated = goal_x * math.cos(d_angle) + goal_y * math.sin(d_angle)
+        # goal_y_rotated = -goal_x * math.sin(d_angle) + goal_y * math.cos(d_angle)
+        #print('GOAL COORDS IN HABITAT SYSTEM:', self.goal_pose_in_habitat_coords)
+
+    def normalize(self, angle):
+        while angle > math.pi:
+            angle -= 2 * math.pi
+        while angle < -math.pi:
+            angle += 2 * math.pi
+        return angle
+
+    def transform_to_map_coords(self, position_habitat, T):
+        position_habitat_4 = np.ones((4, 1))
+        position_habitat_4[:3, 0] = position_habitat
+        position_map = T @ position_habitat_4
+        return position_map[:3, 0]
+
+    def publish_robot_pose(self, observations, T):
+        self.slam_x, self.slam_y, self.slam_angle = self.get_robot_pose(observations)
+        self.robot_pose_in_habitat_coords = observations['agent_position']
+        robot_position, robot_rotation = self.robot_pose_in_habitat_coords
+        robot_position = self.transform_to_map_coords((robot_position[0], robot_position[1], robot_position[2]), T)
+        robot_pose_msg = PoseStamped()
+        robot_pose_msg.header.stamp = rospy.Time.now()
+        robot_pose_msg.header.frame_id = 'habitat'
+        robot_pose_msg.pose.position.x = robot_position[0]
+        robot_pose_msg.pose.position.y = robot_position[1]
+        robot_pose_msg.pose.position.z = robot_position[2]
+        robot_pose_msg.pose.orientation.w = robot_rotation.w
+        robot_pose_msg.pose.orientation.x = robot_rotation.x
+        robot_pose_msg.pose.orientation.y = robot_rotation.y
+        robot_pose_msg.pose.orientation.z = robot_rotation.z
+        self.robot_pose_publisher.publish(robot_pose_msg)
+
+    def run_episode(self, episode=0):
+        T = np.array([
+            [0, 0, 1, 0],
+            [1, 0, 0, 35],
+            [0, 1, 0, -1.15],
+            [0, 0, 0, 1]
+        ])
         observations = self.env.reset()
-        self.env.step(HabitatSimActions.MOVE_FORWARD)
+        self.agent.reset()
+        # self.env.step(HabitatSimActions.move_forward)
 
         self.mapper.reset()
         self.agent.reset()
@@ -166,17 +277,100 @@ class HabitatRunner():
         np.savetxt(os.path.join(self.dataset_save_path, self.scene_name, 'poses.txt'), np.array(poses))
         return
         """
-
         step_start_time = rospy.Time.now()
-        trajectory = []
+        self.publisher.publish(observations, step_start_time)
+        self.publish_robot_pose(observations, T)
+        rospy.sleep(3)
+        current_episode = self.env.current_episode
+        goal_y, goal_z, goal_x = current_episode.goals[0].position
+
+        self.slam_x, self.slam_y, self.slam_angle = self.get_robot_pose(observations)
+        dist, heading = observations['pointgoal_with_gps_compass']
+        (habitat_y, habitat_z, habitat_x), habitat_orientation = observations['agent_position'] 
+
+        _, __, habitat_angle = tf.transformations.euler_from_quaternion([habitat_orientation.x, habitat_orientation.z, habitat_orientation.y, habitat_orientation.w])
+
+        # d_angle = self.normalize(-habitat_angle + self.slam_angle + np.pi)
+        print('SLAM:', self.slam_x, self.slam_y, self.slam_angle)
+        print('habitat:', habitat_x, habitat_y, habitat_z, habitat_angle)
+        # print('D_ANGLE:', d_angle)
+        goal_map = np.array([-(self.slam_x + dist * math.cos(self.slam_angle + habitat_angle + heading)), 
+                             -(self.slam_y + dist * math.sin(self.slam_angle + habitat_angle + heading)),
+                             goal_z])
+        print('Distance + heading:', dist, heading)
+        print('Goal SLAM:', goal_map)
+        print('Goal habitat:', goal_x, goal_y, goal_z)
+
+        goal_map = self.transform_to_map_coords((goal_y, goal_z, goal_x), T)
+        print('Goal SLAM new:', goal_map)
+        # dx = habitat_x - (self.slam_x * math.cos(d_angle) + self.slam_y * math.sin(d_angle))
+        # dy = habitat_y - (-self.slam_x * math.sin(d_angle) + self.slam_y * math.cos(d_angle))
+
+
+        # goal_x_rotated = goal_x * math.cos(d_angle) + goal_y * math.sin(d_angle)
+        # goal_y_rotated = -goal_x * math.sin(d_angle) + goal_y * math.cos(d_angle)
+        # goal_map = np.array([goal_x_rotated - dx, goal_y_rotated - dy, goal_z])
+
+
+        goal_msg = PoseStamped()
+        goal_msg.header.stamp = rospy.Time.now()
+        goal_msg.header.frame_id = 'map'
+        goal_msg.pose.position.x = goal_map[0]
+        goal_msg.pose.position.y = goal_map[1]
+        goal_msg.pose.position.z = habitat_z
+
+        quat = tf.transformations.quaternion_from_euler(0, 0, 1)
+        goal_msg.pose.orientation.x = quat[0]
+        goal_msg.pose.orientation.y = quat[1]
+        goal_msg.pose.orientation.z = quat[2]
+        goal_msg.pose.orientation.w = quat[3]
+
+        self.goal_publisher.publish(goal_msg)
+
+        # trajectory = []
+        # fig, ax = plt.subplots(1, 1, figsize=(10, 5))
+        # im_rgb = ax.imshow(observations['rgb'], animated=True)
+        # ax.set_title(observations['pointgoal_with_gps_compass'])
+        # data = []
+        # times_inference = []
         step = 0
         while not rospy.is_shutdown() and not self.env.episode_over:
             step_start_time = rospy.Time.now()
             t0 = rospy.Time.now().to_sec()
             self.publisher.publish(observations, step_start_time)
+            self.publish_robot_pose(observations, T)
             t1 = rospy.Time.now().to_sec()
             #print('Publish time:', t1 - t0)
-            action = self.agent.act(observations, self.env)
+            metrics = self.env.get_metrics()
+            distance_to_goal = metrics['distance_to_goal']
+            # data.append([observations['rgb'], f"Distance: {distance_to_goal:.4f} {observations['pointgoal_with_gps_compass']}"])
+
+            while not self.goal_received and not rospy.is_shutdown():
+                self.rate.sleep()
+            self.goal_received = False
+            dx, dy, dz = self.goal_pose_in_habitat_coords[:3]
+            # rx, ry, rz = self.robot_pose_in_habitat_coords[0]
+            # q = self.robot_pose_in_habitat_coords[1]
+            # _, _, robot_yaw = tf.transformations.euler_from_quaternion([
+            #     q.x, q.y, q.z, q.w
+            # ])
+
+            # dx = gx - rx
+            # dy = gy - ry
+            dist = float(math.hypot(dx, dy))
+            goal_angle = float(math.atan2(dy, dx))
+            heading = goal_angle
+            # print(observations['pointgoal_with_gps_compass'])
+            observations['pointgoal_with_gps_compass'] = np.array(
+                [dist, heading], dtype=np.float32
+            )
+            # print('PointGoal:', observations['pointgoal_with_gps_compass'])
+            filtered_obs = {
+                "rgb": observations["rgb_for_agent"],
+                "pointgoal_with_gps_compass": observations["pointgoal_with_gps_compass"],
+            }
+            
+            action = self.agent.act(filtered_obs)
             t2 = rospy.Time.now().to_sec()
             #print('Action time:', t2 - t1)
             #if self.agent.goal_pose_in_habitat_coords is None:
@@ -192,21 +386,73 @@ class HabitatRunner():
             robot_x, robot_y = observations['gps']
             robot_y = -robot_y
             robot_angle = observations['compass']
+            if isinstance(robot_angle, (list, np.ndarray)):
+                robot_angle = float(robot_angle[0])
             after_publish = rospy.Time.now().to_sec()
-            trajectory.append((robot_x, robot_y, robot_angle, step_start_time.to_sec()))
+            # trajectory.append((robot_x, robot_y, robot_angle, step_start_time.to_sec()))
             t3 = rospy.Time.now().to_sec()
             #print('Step time:', t3 - t2)
             #if step % 10 == 1:
             #    self.publish_map()
             self.rate.sleep()
             step += 1
-        np.savetxt('/home/kirill/catkin_ws/src/habitat_ros/trajectory.txt', trajectory)
+
+        # def init():
+        #     im_rgb.set_data(data[0][0])
+        #     # im_goal.set_data(data[0][1])
+        #     fig.suptitle(data[0][1])
+        #     return im_rgb
+
+        # def update(frame):
+        #     if frame >= len(data):
+        #         im_rgb.set_data(data[-1][0])
+        #         # im_goal.set_data(data[-1][1])
+        #         fig.suptitle(f"Success: {success:.0f} | Spl: {spl:.4f} | Distance: {distance_to_goal:.4f}")
+        #         return im_rgb
+        #     im_rgb.set_data(data[frame][0])
+        #     # im_goal.set_data(data[frame][1])
+        #     fig.suptitle(data[frame][1])
+        #     return im_rgb
+        
+            
+        metrics = self.env.get_metrics()
+        print('METRICS:', metrics)
+        success = metrics['success']
+        spl = metrics['spl']
+        distance_to_goal = metrics['distance_to_goal']
+        # print('Length: ', len(data))
+        # ani = animation.FuncAnimation(fig, update, frames=len(data) + 30, init_func=init)
+        # # plt.show()
+        # ani.save(filename="/data/gifs/" + self.name + "/episode" + str(episode) + ".mp4")
+
+        # print(f"{trajectory=}")
+        # np.savetxt('/catkin_ws/src/habitat_ros/trajectory.txt', trajectory)
+        return success, spl, distance_to_goal
 
 
 def main():
+    register_sensors()
     rospy.init_node('habitat_ros_node', anonymous=True)
-    runner = HabitatRunner()
-    runner.run_episode()
+    name_exp = 'pointnav_ddppo_mipt_20_topomap'
+    os.system('mkdir /data/gifs/' + name_exp)
+    runner = HabitatRunner(name_exp)
+    # runner.run_episode()
+    successes = []
+    spls = []
+    distances_to_goal = []
+    for ind, ep in enumerate(runner.env.episodes):
+        print(f'Start episode {ind}')
+        success, spl, distance_to_goal = runner.run_episode(ind)
+        rospy.sleep(10)
+        successes.append(success)
+        spls.append(spl)
+        distances_to_goal.append(distance_to_goal)
+    with open('/data/results.json', 'r') as f:
+        data = json.load(f)
+    data.update({name_exp : {'Average success': np.mean(successes), 'Average SPL': np.mean(spls), 'Lost': np.where(np.asarray(successes) == 0)[0].tolist()}})
+    with open('/data/results.json', 'w') as f:
+        json.dump(data, f, indent=4)
+        
 
 
 if __name__ == '__main__':

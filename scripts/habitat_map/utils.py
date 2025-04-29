@@ -16,7 +16,7 @@ from habitat import logger
 from habitat.utils.visualizations.utils import images_to_video
 from habitat_baselines.common.tensorboard_utils import TensorboardWriter
 
-from habitat import Config, logger
+from habitat import logger
 from typing import Any, Optional
 from habitat.core.simulator import Observations
 from habitat.core.dataset import Dataset
@@ -38,37 +38,8 @@ import numbers
 import copy
 
 def init_config():
-    W = 640
-    H = 360
-    config_paths="/data/challenge_pointnav2020.local.rgbd.yaml"
+    config_paths="/data/configs/pointnav_gibson_v2.3.yaml"
     config = habitat.get_config(config_paths=config_paths)
-    config.defrost()
-    config.SIMULATOR.RGB_SENSOR.HEIGHT = H
-    config.SIMULATOR.RGB_SENSOR.WIDTH = W
-    config.SIMULATOR.DEPTH_SENSOR.HEIGHT = H
-    config.SIMULATOR.DEPTH_SENSOR.WIDTH = W
-    config.DATASET.DATA_PATH = '/data/v1/{split}/{split}.json.gz'
-    config.TASK.MEASUREMENTS.append("TOP_DOWN_MAP")
-    config.TASK.SENSORS = ["HEADING_SENSOR", "COMPASS_SENSOR", "GPS_SENSOR", "POINTGOAL_SENSOR", "POINTGOAL_WITH_GPS_COMPASS_SENSOR"]
-    config.TASK.POINTGOAL_WITH_GPS_COMPASS_SENSOR.DIMENSIONALITY = 3
-    config.TASK.POINTGOAL_WITH_GPS_COMPASS_SENSOR.GOAL_FORMAT = "CARTESIAN"
-    config.TASK.POINTGOAL_SENSOR.DIMENSIONALITY = 3
-    config.TASK.POINTGOAL_SENSOR.GOAL_FORMAT = "CARTESIAN"
-    config.TASK.GPS_SENSOR.DIMENSIONALITY = 3
-    config.TASK.GPS_SENSOR.GOAL_FORMAT = "CARTESIAN"
-    config.TASK.AGENT_POSITION_SENSOR = habitat.Config()
-    config.TASK.AGENT_POSITION_SENSOR.TYPE = "position_sensor"
-    config.TASK.AGENT_POSITION_SENSOR.ANSWER_TO_LIFE = 42
-    config.TASK.SENSORS.append("AGENT_POSITION_SENSOR")
-    config.SIMULATOR.TURN_ANGLE = 2
-    config.SIMULATOR.TILT_ANGLE = 2
-    config.SIMULATOR.FORWARD_STEP_SIZE = 0.15
-    config.ENVIRONMENT.MAX_EPISODE_STEPS = 100000
-    config.TASK.TOP_DOWN_MAP.MAX_EPISODE_STEPS = 100000
-    config.DATASET.SCENES_DIR = '/data'
-    config.DATASET.SPLIT = 'train'
-    config.SIMULATOR.SCENE = '/data/gibson/Aldrich.glb'
-    config.freeze()
     return config
 
 class FrameStack(gym.Wrapper):

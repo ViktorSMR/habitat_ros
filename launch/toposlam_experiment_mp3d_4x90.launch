@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="ISO-8859-15"?>
 <launch>
   <arg name="scene_name" default="2n8kARJN3HM"/>
-  <arg name="config_path" default="/home/kirill/habitat-lab/configs/tasks/pointnav_mp3d_4x90_$(arg scene_name).yaml"/>
+  <arg name="config_path" default="/data/configs/pointnav_mp3d_4x90_$(arg scene_name).yaml"/>
 
   <node pkg="habitat_ros" type="main.py" name="habitat_agent" output="screen">
     <param name="task_config" value="$(arg config_path)"/>
@@ -13,7 +13,7 @@
     <param name="true_pose_topic" value="/true_pose"/>
     <param name="max_d_angle" value="0.4"/>
     <param name="goal_radius" value="0.5"/>
-    <param name="camera_calib" value="/home/kirill/catkin_ws/src/tx2_fcnn_node/calib/habitat_camera_calib_4x90.yaml"/>
+    <param name="camera_calib" value="/data/configs/habitat_camera_calib_4x90.yaml"/>
     <param name="scene_name" value="$(arg scene_name)"/>
   </node>
 
