@@ -6,7 +6,7 @@
   <node pkg="habitat_ros" type="main.py" name="habitat_agent" output="screen">
     <param name="task_config" value="$(arg config_path)"/>
     <param name="rate" value="15"/>
-    <param name="agent_type" value="shortest_path_follower"/>
+    <param name="agent_type" value="ddppo"/>
     <param name="rgb_topic" value="/habitat/rgb/image"/>
     <param name="depth_topic" value="/habitat/depth/image"/>
     <param name="camera_info_topic" value="/habitat/rgb/camera_info"/>

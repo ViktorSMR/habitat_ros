@@ -32,8 +32,10 @@ class HabitatObservationPublisher:
                  #semantic_topic=None,
                  camera_info_topic=None,
                  true_pose_topic=None,
-                 camera_info_file=None):
+                 camera_info_file=None,
+                 T=None):
         self.cvbridge = CvBridge()
+        self.T = T
 
         # Initialize camera info publisher
         if camera_info_topic is not None:
@@ -197,12 +199,6 @@ class HabitatObservationPublisher:
 
         # Publish true pose
         if self.publish_true_pose:
-            T = np.array([
-                [0, 0, 1, 0],
-                [1, 0, 0, 35],
-                [0, 1, 0, -1.15],
-                [0, 0, 0, 1]
-            ])
             def transform_to_map_coords(position_habitat, T):
                 position_habitat_4 = np.ones((4, 1))
                 position_habitat_4[:3, 0] = position_habitat
@@ -212,7 +208,7 @@ class HabitatObservationPublisher:
             x, y = observations['gps']
             cur_z_angle = observations['compass'][0]
             cur_pose = PoseStamped()
-            x, y, z = transform_to_map_coords(observations['agent_position'][0], T)
+            x, y, z = transform_to_map_coords(observations['agent_position'][0], self.T)
             cur_pose.header.stamp = cur_time
             cur_pose.header.frame_id = 'map'
             cur_pose.pose.position.x = x

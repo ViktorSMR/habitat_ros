@@ -45,9 +45,9 @@ class ShortestPathFollowerAgent(habitat.Agent):
         self.goal_radius = goal_radius
 
         # initialize ROS publishers and subscribers
-        # self.goal_subscriber = rospy.Subscriber('/move_base_simple/goal', PoseStamped, self.goal_callback)
-        # self.freeze_subscriber = rospy.Subscriber('/freeze', Bool, self.freeze_callback)
-        # self.robot_pose_publisher = rospy.Publisher('/robot_pose_in_habitat_coords', PoseStamped, latch=True, queue_size=100)
+        self.goal_subscriber = rospy.Subscriber('/move_base_simple/goal', PoseStamped, self.goal_callback)
+        self.freeze_subscriber = rospy.Subscriber('/freeze', Bool, self.freeze_callback)
+        self.robot_pose_publisher = rospy.Publisher('/robot_pose_in_habitat_coords', PoseStamped, latch=True, queue_size=100)
         self.goal_received = False
         self.traveled_distance = 0
 
@@ -153,6 +153,12 @@ class ShortestPathFollowerAgent(habitat.Agent):
             print('Switch to next goal:', self.goal_pose_in_habitat_coords)
             self.goal_position_id += 1
         # print('Freeze:', self.freeze)
+        # if keyboard.is_pressed('left'):
+        #     return HabitatSimActions.turn_left
+        # elif keyboard.is_pressed('right'):
+        #     return HabitatSimActions.turn_right
+        # elif keyboard.is_pressed('up'):
+        #     return HabitatSimActions.move_forward
         if self.goal_pose_in_habitat_coords is None:
             #if not self.goal_received:
                 #print('Random action')
@@ -163,11 +169,10 @@ class ShortestPathFollowerAgent(habitat.Agent):
         #    return HabitatSimActions.STOP
         else:
             next_action = self.follower.get_next_action(self.goal_pose_in_habitat_coords)
-            print(f"{next_action=}")
             if next_action == HabitatSimActions.move_forward:
                 self.traveled_distance += 0.2
             # print('Next action:', next_action)
-            if next_action is None:
+            if next_action == 0:
                 print('CANNOT MOVE TO GOAL!!!')
                 return HabitatSimActions.stop
             return next_action
