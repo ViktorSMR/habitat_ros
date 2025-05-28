@@ -76,23 +76,18 @@ class HabitatRunner():
         print('SCENE NAME:', scene_name)
         print('TASK CONFIG:', task_config)
         self.scene_name = scene_name
-        # self.T = np.array([
-        #     [0, 0, 1, 0],
-        #     [1, 0, 0, 35],
-        #     [0, 1, 0, -1.15],
-        #     [0, 0, 0, 1]
-        # ])
         if (self.scene_name == '2n8kARJN3HM'):
-            # T = np.array([
-            #     [0, 0, 1, -8.369192],
-            #     [1, 0, 0, 1.108644],
-            #     [0, 1, 0, -1.011238],
-            #     [0, 0, 0, 1]
-            # ])
             self.T = np.array([
                 [0, 0, 1, -14.29],
                 [1, 0, 0, -3.79],
                 [0, 1, 0, -2.26],
+                [0, 0, 0, 1]
+            ])
+        elif (self.scene_name == 'D7N2EKCX4Sj'):
+            self.T = np.array([
+                [0, 0, 1, 5.15],
+                [1, 0, 0, -1.5],
+                [0, 1, 0, -0.89],
                 [0, 0, 0, 1]
             ])
         self.rate = rospy.Rate(rate_value)
@@ -101,7 +96,7 @@ class HabitatRunner():
                                                     #semantic_topic,
                                                     camera_info_topic, 
                                                     true_pose_topic,
-                                                    camera_info_file
+                                                    camera_info_file,
                                                     self.T)
         # Now define the config for the sensor
         self.action_publisher = rospy.Publisher('habitat_action', Int32, latch=True, queue_size=100)
@@ -152,25 +147,16 @@ class HabitatRunner():
         OmegaConf.set_struct(config, True)
         OmegaConf.set_readonly(config, True)
         self.config = config
-        # self.T = np.array([
-        #     [0, 0, 1, 0],
-        #     [1, 0, 0, 35],
-        #     [0, 1, 0, -1.15],
-        #     [0, 0, 0, 1]
-        # ])
-        if (self.scene_name == '2n8kARJN3HM'):
-            # T = np.array([
-            #     [0, 0, 1, -8.369192],
-            #     [1, 0, 0, 1.108644],
-            #     [0, 1, 0, -1.011238],
-            #     [0, 0, 0, 1]
-            # ])
-            self.T = np.array([
-                [0, 0, 1, -14.29],
-                [1, 0, 0, -3.79],
-                [0, 1, 0, -2.26],
-                [0, 0, 0, 1]
-            ])tat_ros/goal_positions/mp3d/{}.txt'.format(scene_name))
+
+        # Initialize the agent and environment
+        self.env = habitat.Env(config=config)
+        #self.env = env_orb.Env(config=config)
+        print('Environment created')
+
+        self.mapper = Mapper(self.env)
+        #self.semantic_predictor = SemanticPredictor(threshold=0.35)
+
+        # goal_positions = np.loadtxt('/catkin_ws/src/habitat_ros/goal_positions/mp3d/{}.txt'.format(scene_name))
         # goal_positions = np.loadtxt('/catkin_ws/src/habitat_ros/goal_positions/mipt.txt')
         #goal_positions = None
         if agent_type == 'keyboard':
@@ -372,11 +358,12 @@ class HabitatRunner():
             distance_to_goal = metrics['distance_to_goal']
             # data.append([observations['rgb'], f"Distance: {distance_to_goal:.4f} {observations['pointgoal_with_gps_compass']}"])
 
-            while not self.goal_received and not rospy.is_shutdown():
+            while not self.goal_received_once and not rospy.is_shutdown():
                 if not self.goal_received_once:
                     self.goal_publisher.publish(goal_msg)
+                self.publisher.publish(observations, rospy.Time.now())
+                self.publish_robot_pose(observations, self.T)
                 self.rate.sleep()
-            self.goal_received = False
             dx, dy, dz = self.goal_pose_in_habitat_coords[:3]
             print(f"{dx=}, {dy=}")
             # rx, ry, rz = self.robot_pose_in_habitat_coords[0]
