@@ -90,6 +90,28 @@ class HabitatRunner():
                 [0, 1, 0, -0.89],
                 [0, 0, 0, 1]
             ])
+        elif (self.scene_name == 'E9uDoFAP3SH'):
+            self.T = np.array([
+                [0, 0, 1, 3.3228805],
+                [1, 0, 0, -15.010473],
+                [0, 1, 0, 5.0756187],
+                [0, 0, 0, 1]
+            ])
+        elif (self.scene_name == 'JeFG25nYj2p'):
+            self.T = np.array([
+                [0, 0, 1, -3.5703154],
+                [1, 0, 0, 3.0444067],
+                [0, 1, 0, -0.973584],
+                [0, 0, 0, 1]
+            ])
+        elif (self.scene_name == 'rPc6DW4iMge'):
+            self.T = np.array([
+                [0, 0, 1, 4.488],
+                [1, 0, 0, 2.06],
+                [0, 1, 0, -1.04],
+                [0, 0, 0, 1]
+            ])
+
         self.rate = rospy.Rate(rate_value)
         self.publisher = HabitatObservationPublisher(rgb_topic, 
                                                     depth_topic, 
@@ -347,6 +369,7 @@ class HabitatRunner():
         # data = []
         # times_inference = []
         step = 0
+        prev_dist = 0
         while not rospy.is_shutdown() and not self.env.episode_over:
             step_start_time = rospy.Time.now()
             t0 = rospy.Time.now().to_sec()
@@ -356,7 +379,6 @@ class HabitatRunner():
             #print('Publish time:', t1 - t0)
             metrics = self.env.get_metrics()
             distance_to_goal = metrics['distance_to_goal']
-            # data.append([observations['rgb'], f"Distance: {distance_to_goal:.4f} {observations['pointgoal_with_gps_compass']}"])
 
             while not self.goal_received_once and not rospy.is_shutdown():
                 if not self.goal_received_once:
@@ -376,12 +398,18 @@ class HabitatRunner():
             # dy = gy - ry
             dist = float(math.hypot(dx, dy))
             goal_angle = float(math.atan2(dy, dx))
+            # if np.abs(dist - prev_dist) >= 2:
+            #     self.agent.reset()
+            #     print('Reset!')
+            prev_dist = dist
             # heading = self.normalize(robot_yaw - goal_angle + np.pi)
             heading = goal_angle
             # print(observations['pointgoal_with_gps_compass'])
             pointgoal_with_gps_compas = np.array(
                 [dist, heading], dtype=np.float32
             )
+            # data.append([observations['rgb'], f"Distance: {distance_to_goal:.4f} {pointgoal_with_gps_compas}"])
+
             print('PointGoal:', observations['pointgoal_with_gps_compass'])
             print('PointGoal:', pointgoal_with_gps_compas)
             filtered_obs = {
@@ -447,7 +475,7 @@ class HabitatRunner():
         # print(f"{trajectory=}")
         # np.savetxt('/catkin_ws/src/habitat_ros/trajectory.txt', trajectory)
         rospy.sleep(5)
-        return success, spl, distance_to_goal
+        return success, spl, distance_to_goal, step
 
 
 def main():
@@ -461,7 +489,7 @@ def main():
     print(f'{scene_name=}')
     prism_topomap_args = ['prism_topomap', 'build_map_by_iou_habitat.launch', f'scene_name:={scene_name}']
     prism_roslaunch_file = roslaunch.rlutil.resolve_launch_arguments(prism_topomap_args)[0]
-    name_exp = f'pointnav_ddppo_mp3d_{scene_name}_20_topomap'
+    name_exp = f'pointnav_ddppo_mp3d_{scene_name}_20_topomap_no_resests'
     os.system('mkdir /data/gifs/' + name_exp)
     os.system('mkdir /data/bags/' + scene_name)
     runner = HabitatRunner(name_exp)
@@ -470,32 +498,34 @@ def main():
     successes = []
     spls = []
     distances_to_goal = []
+    end_steps = []
     for ind, ep in enumerate(runner.env.episodes):
-        import subprocess
+        # import subprocess
 
-        rosbag_args = [
-            'rosbag', 'record',
-            '/topological_map', '/last_vertex', '/current_grid',
-            '/local_grid', '/matched_points', '/unmatched_points',
-            '/topological_path_marker', '/tf', '/pointgoal',
-            '/true_pose',
-            '-O', f'/data/bags/{scene_name}/path_for_{ind}.bag'
-        ]
-        proc = subprocess.Popen(rosbag_args)
+        # rosbag_args = [
+        #     'rosbag', 'record',
+        #     '/topological_map', '/last_vertex', '/current_grid',
+        #     '/local_grid', '/matched_points', '/unmatched_points',
+        #     '/topological_path_marker', '/tf', '/pointgoal',
+        #     '/true_pose',
+        #     '-O', f'/data/bags/{scene_name}/path_for_{ind}.bag'
+        # ]
+        # proc = subprocess.Popen(rosbag_args)
         launch_prism = roslaunch.parent.ROSLaunchParent(uuid, [(prism_roslaunch_file, prism_topomap_args)])
         launch_prism.start()
         rospy.sleep(10)
         print(f'Start episode {ind}')
-        success, spl, distance_to_goal = runner.run_episode(ind)
+        success, spl, distance_to_goal, step = runner.run_episode(ind)
         launch_prism.shutdown()
-        proc.terminate()
+        # proc.terminate()
         rospy.sleep(10)
         successes.append(success)
         spls.append(spl)
+        end_steps.append(step)
         distances_to_goal.append(distance_to_goal)
     with open('/data/results.json', 'r') as f:
         data = json.load(f)
-    data.update({name_exp : {'Average success': np.mean(successes), 'Average SPL': np.mean(spls), 'Lost': np.where(np.asarray(successes) == 0)[0].tolist()}})
+    data.update({name_exp : {'Average success': np.mean(successes), 'Average SPL': np.mean(spls), 'Lost': np.where(np.asarray(successes) == 0)[0].tolist(), 'End steps': end_steps}})
     with open('/data/results.json', 'w') as f:
         json.dump(data, f, indent=4)
         
