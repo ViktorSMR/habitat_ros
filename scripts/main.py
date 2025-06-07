@@ -487,7 +487,10 @@ def main():
     roslaunch.configure_logging(uuid)
     scene_name = rospy.get_param('~scene_name', None)
     print(f'{scene_name=}')
-    prism_topomap_args = ['prism_topomap', 'build_map_by_iou_habitat.launch', f'scene_name:={scene_name}']
+    prism_topomap_args = ['prism_topomap', 'habitat_mp3d_localization.launch', 
+                          f'scene_name:={scene_name}',
+                          f'path_to_load_json:=/data/maps/{scene_name}',
+                          f'path_to_save_logs:=/logs']
     prism_roslaunch_file = roslaunch.rlutil.resolve_launch_arguments(prism_topomap_args)[0]
     name_exp = f'pointnav_ddppo_mp3d_{scene_name}_20_topomap_no_resests'
     os.system('mkdir /data/gifs/' + name_exp)
