@@ -16,6 +16,7 @@ from habitat.core.agent import Agent
 from habitat.core.simulator import Observations
 from habitat_baselines.rl.ddppo.policy import PointNavResNetPolicy
 from habitat_baselines.utils.common import batch_obs
+from habitat.sims.habitat_simulator.actions import HabitatSimActions
 
 
 @dataclass
@@ -107,6 +108,9 @@ class DDPPOAgent(Agent):
         self.test_recurrent_hidden_states: Optional[torch.Tensor] = None
         self.not_done_masks: Optional[torch.Tensor] = None
         self.prev_actions: Optional[torch.Tensor] = None
+        self.pointgoal_history = []
+        self.steps_on_place = 0
+        self.stuck = False
 
     def reset(self) -> None:
         self.test_recurrent_hidden_states = torch.zeros(
@@ -123,7 +127,39 @@ class DDPPOAgent(Agent):
         )
 
     def act(self, observations: Observations) -> Dict[str, int]:
+        # If we didn't receive pointgoal message, perform random walking
+        if observations['pointgoal_with_gps_compass'] is None:
+            a = np.random.random()
+            if a < 0.7:
+                random_action = HabitatSimActions.move_forward
+            else:
+                random_action = HabitatSimActions.turn_left
+            # else:
+            #     random_action = HabitatSimActions.turn_right
+            return {"action": random_action}
+        self.pointgoal_history.append(observations['pointgoal_with_gps_compass'])
+        # If we stuck on place for 6 or more steps, try to escape
+        if len(self.pointgoal_history) > 1 and abs(self.pointgoal_history[-1][0] - self.pointgoal_history[-2][0]) < 0.05:
+            self.steps_on_place += 1
+        else:
+            self.stuck = False
+            self.steps_on_place = 0
+        if self.steps_on_place == 15:
+            self.stuck = True
+            random_factor = np.random.random() - 0.4
+            if observations['pointgoal_with_gps_compass'][1] * random_factor > 0:
+                self.turn_action = HabitatSimActions.turn_left
+            else:
+                self.turn_action = HabitatSimActions.turn_right
+        if self.stuck:
+            print('Escape from stuck')
+            if self.steps_on_place % 3 == 0:
+                escape_action = self.turn_action
+            else:
+                escape_action = HabitatSimActions.move_forward
+            return {"action": escape_action}
         batch = batch_obs([observations], device=self.device)
+        # Otherwise, act by DDPPO policy
         with torch.no_grad():
             (
                 _,

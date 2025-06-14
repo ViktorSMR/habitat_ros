@@ -148,7 +148,8 @@ class HabitatRunner():
         OmegaConf.set_readonly(config, False)
         OmegaConf.set_struct(config, False)
 
-        # config.habitat.environment.iterator_options.shuffle = False
+        config.habitat.environment.iterator_options.shuffle = False
+        # config.habitat.environment.max_episode_steps = 5
         
         config.habitat.task.lab_sensors.agent_position_sensor = AgentPositionSensorConfig(
             answer_to_life=42
@@ -380,41 +381,53 @@ class HabitatRunner():
             metrics = self.env.get_metrics()
             distance_to_goal = metrics['distance_to_goal']
 
-            while not self.goal_received_once and not rospy.is_shutdown():
-                if not self.goal_received_once:
-                    self.goal_publisher.publish(goal_msg)
-                self.publisher.publish(observations, rospy.Time.now())
-                self.publish_robot_pose(observations, self.T)
-                self.rate.sleep()
-            dx, dy, dz = self.goal_pose_in_habitat_coords[:3]
-            print(f"{dx=}, {dy=}")
-            # rx, ry, rz = self.robot_pose_in_habitat_coords[0]
-            q = self.robot_pose_in_habitat_coords[1]
-            _, _, robot_yaw = tf.transformations.euler_from_quaternion([
-                q.x, q.y, q.z, q.w
-            ])
+            self.publisher.publish(observations, rospy.Time.now())
+            self.publish_robot_pose(observations, self.T)
 
-            # dx = gx - rx
-            # dy = gy - ry
-            dist = float(math.hypot(dx, dy))
-            goal_angle = float(math.atan2(dy, dx))
-            # if np.abs(dist - prev_dist) >= 2:
-            #     self.agent.reset()
-            #     print('Reset!')
-            prev_dist = dist
-            # heading = self.normalize(robot_yaw - goal_angle + np.pi)
-            heading = goal_angle
-            # print(observations['pointgoal_with_gps_compass'])
-            pointgoal_with_gps_compas = np.array(
-                [dist, heading], dtype=np.float32
-            )
-            # data.append([observations['rgb'], f"Distance: {distance_to_goal:.4f} {pointgoal_with_gps_compas}"])
+            # while not self.goal_received_once and not rospy.is_shutdown():
+            if not self.goal_received_once:
+                self.goal_publisher.publish(goal_msg)
+                pointgoal_with_gps_compas = None
+            else:
+                while not self.goal_received and not rospy.is_shutdown():
+                    self.rate.sleep()
+                dx, dy, dz = self.goal_pose_in_habitat_coords[:3]
+                # print(f"{dx=}, {dy=}")
+                # rx, ry, rz = self.robot_pose_in_habitat_coords[0]
+                q = self.robot_pose_in_habitat_coords[1]
+                _, _, robot_yaw = tf.transformations.euler_from_quaternion([
+                    q.x, q.y, q.z, q.w
+                ])
 
-            print('PointGoal:', observations['pointgoal_with_gps_compass'])
-            print('PointGoal:', pointgoal_with_gps_compas)
+                # dx = gx - rx
+                # dy = gy - ry
+                print('dx dy:', dx, dy)
+                dist = float(math.hypot(dx, dy))
+                goal_angle = float(math.atan2(dy, dx))
+                print('Goal angle:', goal_angle)
+                # if np.abs(dist - prev_dist) >= 2:
+                #     self.agent.reset()
+                #     print('Reset!')
+                prev_dist = dist
+                # heading = self.normalize(robot_yaw - goal_angle + np.pi)
+                heading = goal_angle
+                # print(observations['pointgoal_with_gps_compass'])
+                pointgoal_with_gps_compas = np.array(
+                    [dist, heading], dtype=np.float32
+                )
+                # data.append([observations['rgb'], f"Distance: {distance_to_goal:.4f} {pointgoal_with_gps_compas}"])
+                # If it is final goal, and we are close to it, force to finish
+                if dz > 0.5 and dist < 0.35:
+                    pointgoal_with_gps_compas = np.array(
+                        [0, 0], dtype=np.float32
+                    )
+
+            print('PointGoal from habitat:', observations['pointgoal_with_gps_compass'])
+            print('PointGoal from TopoSLAM:', pointgoal_with_gps_compas)
             filtered_obs = {
                 "rgb": observations["rgb_for_agent"],
                 "pointgoal_with_gps_compass": pointgoal_with_gps_compas,
+                #"pointgoal_with_gps_compass": observations['pointgoal_with_gps_compass']
             }
 
             action = self.agent.act(filtered_obs)
@@ -441,7 +454,8 @@ class HabitatRunner():
             #print('Step time:', t3 - t2)
             #if step % 10 == 1:
             #    self.publish_map()
-            self.rate.sleep()
+            self.goal_received = False
+            # self.rate.sleep()
             step += 1
 
         # def init():
