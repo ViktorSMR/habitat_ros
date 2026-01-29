@@ -7,7 +7,6 @@ import yaml
 import tf
 import cv2
 import numpy as np
-import pandas as pd
 
 MAX_DEPTH = 10
 
@@ -32,10 +31,8 @@ class HabitatObservationPublisher:
                  #semantic_topic=None,
                  camera_info_topic=None,
                  true_pose_topic=None,
-                 camera_info_file=None,
-                 T=None):
+                 camera_info_file=None):
         self.cvbridge = CvBridge()
-        self.T = T
 
         # Initialize camera info publisher
         if camera_info_topic is not None:
@@ -199,16 +196,10 @@ class HabitatObservationPublisher:
 
         # Publish true pose
         if self.publish_true_pose:
-            def transform_to_map_coords(position_habitat, T):
-                position_habitat_4 = np.ones((4, 1))
-                position_habitat_4[:3, 0] = position_habitat
-                position_map = T @ position_habitat_4
-                return position_map[:3, 0]
-
             x, y = observations['gps']
+            y = -y
             cur_z_angle = observations['compass'][0]
             cur_pose = PoseStamped()
-            x, y, z = transform_to_map_coords(observations['agent_position'][0], self.T)
             cur_pose.header.stamp = cur_time
             cur_pose.header.frame_id = 'map'
             cur_pose.pose.position.x = x

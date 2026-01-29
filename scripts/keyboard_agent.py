@@ -1,41 +1,29 @@
 import habitat
 from habitat.sims.habitat_simulator.actions import HabitatSimActions
 import keyboard
+import numpy as np
 
 class KeyboardAgent(habitat.Agent):
     def __init__(self):
-        self.speed = 0.
-        self.twist = 1.
+        pass
 
     def reset(self):
         pass
 
     def get_actions_from_keyboard(self):
-        keyboard_commands = [HabitatSimActions.move_forward] * int(self.speed)
+        keyboard_commands = []
         if keyboard.is_pressed('left'):
-            keyboard_commands += [HabitatSimActions.turn_left] * max(int(self.twist), 1)
+            keyboard_commands += [HabitatSimActions.turn_left]
         if keyboard.is_pressed('right'):
-            keyboard_commands += [HabitatSimActions.turn_right] * max(int(self.twist), 1)
+            keyboard_commands += [HabitatSimActions.turn_right]
         if keyboard.is_pressed('up'):
-            self.speed += 0.1
-        if keyboard.is_pressed('down'):
-            self.speed = max(self.speed - 0.2, 0)
-        if keyboard.is_pressed('s'):
-            self.speed = 0
-        if keyboard.is_pressed('e'):
-            self.twist += 0.2
-        if keyboard.is_pressed('d'):
-            self.twist = max(self.twist - 0.2, 0)
+            keyboard_commands += [HabitatSimActions.move_forward]
         return keyboard_commands
-        #return [HabitatSimActions.MOVE_FORWARD]
 
-    def act(self, observations, env):
+    def act(self, observations):
         # receive command from keyboard and move
         actions = self.get_actions_from_keyboard()
         if len(actions) > 0:
-            for action in actions[:-1]:
-                env.step(action)
-        if len(actions) > 0:
-            return actions[-1]
+            return np.random.choice(actions)
         else:
             return HabitatSimActions.stop

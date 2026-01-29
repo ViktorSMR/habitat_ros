@@ -11,8 +11,6 @@ from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import Odometry
 from std_msgs.msg import Bool
 from habitat.utils.visualizations import maps
-from skimage.io import imsave
-
 
 def draw_top_down_map(info, heading, output_size):
     top_down_map = maps.colorize_topdown_map(
@@ -129,7 +127,7 @@ class ShortestPathFollowerAgent(habitat.Agent):
         return (dst_robot_to_goal < self.goal_radius * 1.2)
 
 
-    def act(self, observations, env):
+    def act(self, observations):
         self.slam_x, self.slam_y, self.slam_angle = self.get_robot_pose(observations)
         self.robot_pose_in_habitat_coords = observations['agent_position']
         robot_position, robot_rotation = self.robot_pose_in_habitat_coords

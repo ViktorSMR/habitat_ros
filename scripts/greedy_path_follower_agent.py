@@ -109,7 +109,7 @@ class GreedyPathFollowerAgent(habitat.Agent):
             self.start_time = rospy.Time.now().to_sec()
 
 
-    def act(self, observations, env):
+    def act(self, observations):
         # if arrow keys pressed, give control to keyboard
         if keyboard.is_pressed('left'):
             return HabitatSimActions.TURN_LEFT
